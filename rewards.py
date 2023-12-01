@@ -1,7 +1,6 @@
 import numpy as np
 
 def wait_norm(signals):
-    def wait_norm(signals):
     rewards = dict()
     for signal_id in signals:
         total_wait = 0

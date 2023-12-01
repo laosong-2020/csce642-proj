@@ -1,4 +1,4 @@
-signal_config = {
+signal_configs = {
     'cologne3': {
 		'phase_pairs': [[1, 7], [2, 8], [1, 2], [7, 8], [4, 10], [5, 11], [10, 11], [4, 5], [9, 11]],
 		'valid_acts': {

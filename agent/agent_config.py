@@ -1,9 +1,9 @@
-import .rewards as rewards
-import .states as states
+import rewards
+import states
 
-from .agent.DQN import DQNIndependentAgent
+from agent.DQN_MultiAgt import DQNIndependentAgent
 
-agent_config = {
+agent_configs = {
     'IDQN': {
         'agent': DQNIndependentAgent,
         'state': states.drq_norm,

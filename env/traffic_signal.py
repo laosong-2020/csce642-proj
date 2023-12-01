@@ -2,7 +2,7 @@ import traci
 import copy
 import re
 
-from .signal_config import signal_config
+from .signal_config import signal_configs
 
 import traci
 import copy

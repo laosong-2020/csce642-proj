@@ -154,8 +154,10 @@ class Env(gym.Env):
             for ts in self.ts_order:
                 rets.append(states[ts])
             return rets
-
-        return self.state_fn(self.signals)
+        states_dict = self.state_fn(self.signals)
+        key = next(iter(states_dict))
+        return states_dict[key]
+        #return self.state_fn(self.signals)
 
     def step(self, act):
         if self.gymma:
@@ -166,7 +168,8 @@ class Env(gym.Env):
 
         # Send actions to their signals
         for signal in self.signals:
-            self.signals[signal].prep_phase(act[signal])
+            self.signals[signal].prep_phase(act)
+            #self.signals[signal].prep_phase(act[signal])
 
         for step in range(self.yellow_length):
             self.step_sim()
@@ -190,7 +193,9 @@ class Env(gym.Env):
                 obss.append(observations[ts])
                 rww.append(rewards[ts])
             return obss, rww, [done], {'eps': self.run}
-        return observations, rewards, done, {'eps': self.run}
+        junc_key = next(iter(observations))
+        return observations[junc_key], rewards[junc_key], done, {'eps': self.run}
+        #return observations, rewards, done, {'eps': self.run}
 
     def calc_metrics(self, rewards):
         queue_lengths = dict()

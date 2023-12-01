@@ -1,184 +1,91 @@
-from typing import Any, Sequence
+import random
 import numpy as np
-
+import collections
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
 
-import pfrl
-from pfrl import explorers, replay_buffers
-from pfrl.explorer import Explorer
-from pfrl.agents import DQN
-from pfrl.q_functions import DiscreteActionValueHead
-from pfrl.utils.contexts import evaluating
 
-from agent import Agent, IndependentAgent
+class ReplayBuffer:
+    ''' 经验回放池 '''
+    def __init__(self, capacity):
+        self.buffer = collections.deque(maxlen=capacity)  # 队列,先进先出
 
-class DQNIndependentAgent(IndependentAgent):
-    def __init__(self, config, obs_act, map_name, thread_number):
-        super().__init__(config, obs_act, map_name, thread_number)
-        for key in obs_act:
-            obs_space = obs_act[key][0]
-            act_space = obs_act[key][1]
+    def add(self, state, action, reward, next_state, done):  # 将数据加入buffer
+        self.buffer.append((state, action, reward, next_state, done))
 
-            def conv2d_size_out(size, kernel_size=2, stride=1):
-                return (size - (kernel_size - 1) - 1) // stride + 1
+    def sample(self, batch_size):  # 从buffer中采样数据,数量为batch_size
+        transitions = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = zip(*transitions)
+        return np.array(state), action, reward, np.array(next_state), done
 
-            h = conv2d_size_out(obs_space[1])
-            w = conv2d_size_out(obs_space[2])
-
-            model = nn.Sequential(
-                nn.Conv2d(obs_space[0], 32, kernel_size=(2, 2)),
-                nn.ReLU(),
-                nn.Flatten(),
-                nn.Linear(h * w * 32, 32),
-                nn.ReLU(),
-                nn.Linear(32, 32),
-                nn.ReLU(),
-                nn.Linear(32, act_space),
-                DiscreteActionValueHead()
-            )
-
-            self.agents[key] = DQNAgent(config, act_space, model)
-            if 'load' in self.config and self.config['load']:
-            #if self.config['load']:
-                print('LOADING SAVED MODEL FOR EVALUATION')
-                self.agents[key].load(self.config['log_dir']+'agent_'+key+'.pt')
-                self.agents[key].agent.training = False
-
-class DQNAgent(Agent):
-    def __init__(self, config, act_space, model, num_agents=0):
-        super().__init__()
-
-        self.model = model
-        self.optimizer = torch.optim.Adam(self.model.parameters())
-        replay_buffer = replay_buffer.ReplayBuffer(10000)
-
-        if num_agents > 0:
-            explorer = SharedEpsGreedy(
-                config['EPS_START'],
-                config['EPS_END'],
-                num_agents*config['steps'],
-                lambda: np.random.randint(act_space),
-            )
-            print('USING SHAREDDQN')
-            self.agent = SharedDQN(self.model, self.optimizer, replay_buffer,
-                                   config['GAMMA'], explorer, gpu=self.device.index,
-                                   minibatch_size=config['BATCH_SIZE'], replay_start_size=config['BATCH_SIZE'],
-                                   phi=lambda x: np.asarray(x, dtype=np.float32),
-                                   target_update_interval=config['TARGET_UPDATE']*num_agents, update_interval=num_agents)
-        else:
-            explorer = explorers.LinearDecayEpsilonGreedy(
-                config['EPS_START'],
-                config['EPS_END'],
-                config['steps'],
-                lambda: np.random.randint(act_space),
-            )
-            self.agent = DQN(self.model, self.optimizer, replay_buffer, config['GAMMA'], explorer,
-                             gpu=self.device.index,
-                             minibatch_size=config['BATCH_SIZE'], replay_start_size=config['BATCH_SIZE'],
-                             phi=lambda x: np.asarray(x, dtype=np.float32),
-                             target_update_interval=config['TARGET_UPDATE'])
-    def act(self, observation, valid_acts=None, reverse_valid=None):
-        if isinstance(observation, SharedDQN):
-            return self.agent.act(observation, valid_acts=valid_acts, reverse_valid=reverse_valid)
-        else:
-            return self.agent.act(observation)
+    def size(self):  # 目前buffer中数据的数量
+        return len(self.buffer)
     
-    def observe(self, observation, reward, done, info):
-        if isinstance(self.agent, SharedDQN):
-            self.agent.observe(observation, reward, done, info)
-        else:
-            self.agent.observe(observation, reward, done, False)
+class Qnet(torch.nn.Module):
+    ''' 只有一层隐藏层的Q网络 '''
+    def __init__(self, state_dim, hidden_dim, action_dim):
+        super(Qnet, self).__init__()
+        self.fc1 = torch.nn.Linear(state_dim[0]*state_dim[1]*state_dim[2], hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, int(hidden_dim/2))
+        self.fc3 = torch.nn.Linear(int(hidden_dim/2), action_dim)
+
+    def forward(self, x):
+        x = x.flatten(start_dim=1)
+        x = F.relu(self.fc1(x))  # 隐藏层使用ReLU激活函数
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
     
-    def save(self, path):
-        torch.save(
-            {
-                'model_state_dict': self.model.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-            }, path+'.pt'
-        )
-    
-    def load(self, path):
-        checkpoint = torch.load(path+'.pt')
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+class DQN:
+    ''' DQN算法 '''
+    def __init__(self, state_dim, hidden_dim, action_dim, learning_rate, gamma,
+                 epsilon, target_update, device):
+        self.action_dim = action_dim
+        self.q_net = Qnet(state_dim, hidden_dim,
+                          self.action_dim).to(device)  # Q网络
+        # 目标网络
+        self.target_q_net = Qnet(state_dim, hidden_dim,
+                                 self.action_dim).to(device)
+        # 使用Adam优化器
+        self.optimizer = torch.optim.Adam(self.q_net.parameters(),
+                                          lr=learning_rate)
+        self.gamma = gamma  # 折扣因子
+        self.epsilon = epsilon  # epsilon-贪婪策略
+        self.target_update = target_update  # 目标网络更新频率
+        self.count = 0  # 计数器,记录更新次数
+        self.device = device
 
-class SharedDQN(DQN):
-    def __init__(self, q_function: torch.nn.Module, optimizer: torch.optim.Optimizer,
-                 replay_buffer: pfrl.replay_buffer.AbstractReplayBuffer, gamma: float, explorer: Explorer,
-                 gpu, minibatch_size, replay_start_size, phi, target_update_interval, update_interval):
-
-        super().__init__(q_function, optimizer, replay_buffer, gamma, explorer,
-                         gpu=gpu, minibatch_size=minibatch_size, replay_start_size=replay_start_size, phi=phi,
-                         target_update_interval=target_update_interval, update_interval=update_interval)
-
-    def act(self, obs: Any, valid_acts=None, reverse_valid=None) -> Any:
-        return self.batch_act(obs, valid_acts=valid_acts, reverse_valid=reverse_valid)
-
-    def observe(self, obs: Sequence[Any], reward: Sequence[float], done: Sequence[bool], reset: Sequence[bool]) -> None:
-        self.batch_observe(obs, reward, done, reset)
-
-    def batch_act(self, batch_obs: Sequence[Any], valid_acts=None, reverse_valid=None) -> Sequence[Any]:
-        if valid_acts is None: return super(SharedDQN, self).batch_act(batch_obs)
-        with torch.no_grad(), evaluating(self.model):
-            batch_av = self._evaluate_model_and_update_recurrent_states(batch_obs)
-
-            batch_qvals = batch_av.params[0].detach().cpu().numpy()
-            batch_argmax = []
-            for i in range(len(batch_obs)):
-                batch_item = batch_qvals[i]
-                max_val, max_idx = None, None
-                for idx in valid_acts[i]:
-                    batch_item_qval = batch_item[idx]
-                    if max_val is None:
-                        max_val = batch_item_qval
-                        max_idx = idx
-                    elif batch_item_qval > max_val:
-                        max_val = batch_item_qval
-                        max_idx = idx
-                batch_argmax.append(max_idx)
-            batch_argmax = np.asarray(batch_argmax)
-
-        if self.training:
-            batch_action = []
-            for i in range(len(batch_obs)):
-                av = batch_av[i : i + 1]
-                greed = batch_argmax[i]
-                act, greedy = self.explorer.select_action(self.t, lambda: greed, action_value=av, num_acts=len(valid_acts[i]))
-                if not greedy:
-                    act = reverse_valid[i][act]
-                batch_action.append(act)
-
-            self.batch_last_obs = list(batch_obs)
-            self.batch_last_action = list(batch_action)
+    def take_action(self, state):  # epsilon-贪婪策略采取动作
+        if np.random.random() < self.epsilon:
+            action = np.random.randint(self.action_dim)
         else:
-            batch_action = batch_argmax
+            state = torch.tensor([state], dtype=torch.float).to(self.device)
+            action = self.q_net(state).argmax().item()
+        return action
 
-        valid_batch_action = []
-        for i in range(len(batch_action)):
-            valid_batch_action.append(valid_acts[i][batch_action[i]])
-        return valid_batch_action
+    def update(self, transition_dict):
+        states = torch.tensor(transition_dict['states'],
+                              dtype=torch.float).to(self.device)
+        actions = torch.tensor(transition_dict['actions']).view(-1, 1).to(
+            self.device)
+        rewards = torch.tensor(transition_dict['rewards'],
+                               dtype=torch.float).view(-1, 1).to(self.device)
+        next_states = torch.tensor(transition_dict['next_states'],
+                                   dtype=torch.float).to(self.device)
+        dones = torch.tensor(transition_dict['dones'],
+                             dtype=torch.float).view(-1, 1).to(self.device)
 
-def select_action_epsilon_greedily(epsilon, random_action_func, greedy_action_func):
-    if np.random.rand() < epsilon:
-        return random_action_func(), False
-    else:
-        return greedy_action_func(), True
+        q_values = self.q_net(states).gather(1, actions)  # Q值
+        # 下个状态的最大Q值
+        max_next_q_values = self.target_q_net(next_states).max(1)[0].view(
+            -1, 1)
+        q_targets = rewards + self.gamma * max_next_q_values * (1 - dones
+                                                                )  # TD误差目标
+        dqn_loss = torch.mean(F.mse_loss(q_values, q_targets))  # 均方误差损失函数
+        self.optimizer.zero_grad()  # PyTorch中默认梯度会累积,这里需要显式将梯度置为0
+        dqn_loss.backward()  # 反向传播更新参数
+        self.optimizer.step()
 
-class SharedEpsGreedy(explorers.LinearDecayEpsilonGreedy):
-
-    def select_action(self, t, greedy_action_func, action_value=None, num_acts=None):
-        self.epsilon = self.compute_epsilon(t)
-        if num_acts is None:
-            fn = self.random_action_func
-        else:
-            fn = lambda: np.random.randint(num_acts)
-        a, greedy = select_action_epsilon_greedily(
-            self.epsilon, fn, greedy_action_func
-        )
-        greedy_str = "greedy" if greedy else "non-greedy"
-        self.logger.debug("t:%s a:%s %s", t, a, greedy_str)
-        if num_acts is None:
-            return a
-        else:
-            return a, greedy
+        if self.count % self.target_update == 0:
+            self.target_q_net.load_state_dict(
+                self.q_net.state_dict())  # 更新目标网络
+        self.count += 1
