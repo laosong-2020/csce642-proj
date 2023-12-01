@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 outputs/*
 results/*
 main-back.py
 __pycache__/*
 *.pyc
+=======
+outputs/*
+main-back.py
+>>>>>>> 372726549ebf36ace76825d87cc871206965e5a4
