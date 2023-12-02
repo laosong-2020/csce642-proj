@@ -1,7 +1,7 @@
 map_configs = {
     'cologne1': {
         'lights': [],
-        'net': 'nets/RESCO/cologne1.sumocfg',
+        'net': 'nets/cologne/cologne1.sumocfg',
         'route': None,
         'step_length': 20,
         'yellow_length': 3,
@@ -12,7 +12,7 @@ map_configs = {
     },
     'cologne3': {
         'lights': [],
-        'net': 'nets/RESCO/cologne3.sumocfg',
+        'net': 'nets/cologne/cologne3.sumocfg',
         'route': None,
         'step_length': 20,
         'yellow_length': 3,
