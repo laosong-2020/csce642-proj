@@ -11,7 +11,11 @@ sudo add-apt-repository ppa:sumo/stable
 sudo apt-get update
 sudo apt-get install sumo sumo-tools sumo-doc
 ```
-
+### Set SUMO Environment Variable
+```shell
+echo 'export SUMO_HOME="/usr/share/sumo"' >> ~/.bashrc
+source ~/.bashrc
+```
 ### Install Dependencies Packages
 ```shell
 pip install -r requirements.txt
