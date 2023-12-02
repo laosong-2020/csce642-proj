@@ -1,5 +1,3 @@
-import pathlib
-import pathlib
 import os
 import multiprocessing as mp
 import sys
@@ -16,25 +14,14 @@ else:
     sys.exit("Please declare the environment variable 'SUMO_HOME'")
 
 from env.env import Env
-from env.signal_config import signal_configs
 from env.map_config import map_configs
-from agent.agent_config import agent_configs
-
-from agent.DDPG import DDPG
-from stable_baselines3.dqn.dqn import DQN as DQN_bs3
-
-from sumo_rl import SumoEnvironment
+from states import drq_norm
+from rewards import wait_norm
 from agent.DQN import DQN, ReplayBuffer
-from util.rl_utils import train_off_policy_agent,ReplayBuffer
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--trials", type=int, default=1)
-    ap.add_argument("--agent", type=str, default="IDQN")
     ap.add_argument("--map", type=str, default="cologne1")
-    ap.add_argument("--eps", type=int, default=100)
-    ap.add_argument("--procs", type=int, default=1)
-
     ap.add_argument("--pwd", type=str, default=os.path.dirname(__file__))
     ap.add_argument("--log_dir", type=str, default=os.path.join(os.path.dirname(os.getcwd()), 'results' + os.sep))
     ap.add_argument("--gui", type=bool, default=False)
@@ -108,12 +95,6 @@ def main():
             
 
 def make_env(args):
-    # agent config
-    agent_config = agent_configs[args.agent]
-    agent_map_config = agent_configs.get(args.map)
-    if agent_map_config is not None:
-        agent_config = agent_map_config
-    alg = agent_config['agent']
 
     # map config
     map_config = map_configs[args.map]
@@ -127,17 +108,17 @@ def make_env(args):
 
     # env
     env = Env(
-        run_name=alg.__name__,
+        run_name="DQN",
         map_name=args.map,
         net=os.path.join(args.pwd, map_config['net']),
-        state_fn=agent_config['state'],
-        reward_fn=agent_config['reward'],
+        state_fn=drq_norm,
+        reward_fn=wait_norm,
         route=route,
         step_length=map_config['step_length'],
         yellow_length=map_config['yellow_length'],
         step_ratio=map_config['step_ratio'], 
         end_time=map_config['end_time'],
-        max_distance=agent_config['max_distance'], 
+        max_distance=200, 
         lights=map_config['lights'], 
         gui=args.gui,
         log_dir=args.log_dir, 

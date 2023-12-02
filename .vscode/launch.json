@@ -12,7 +12,6 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                "--agent","IDQN",
                 "--map","cologne1",
             ]
         }
