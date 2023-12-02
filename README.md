@@ -2,9 +2,21 @@
 ## Set up Envs
 ### Set up Conda Virtual Env
 ```shell
-conda env create -f environment.yml
+conda create -n csce642-proj python=3.8
+conda activate csce642-proj
 ```
+### Install Sumo Latest Version
+```shell
+sudo add-apt-repository ppa:sumo/stable
+sudo apt-get update
+sudo apt-get install sumo sumo-tools sumo-doc
+```
+
 ### Install Dependencies Packages
 ```shell
 pip install -r requirements.txt
+```
+### Start Training
+```shell
+python main.py
 ```
